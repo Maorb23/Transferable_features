@@ -1,0 +1,12 @@
+@"
+# Ignore dataset and archives
+tiny-imagenet-200/
+tiny-imagenet-200.tar
+tiny-imagenet-200.tar.gz
+*.tar
+*.tar.gz
+*.pt
+*.pkl
+"@ | Out-File -Encoding UTF8 .gitignore
+*.png
+*.jpg
