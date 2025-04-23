@@ -30,7 +30,7 @@ def preprocess_task(train_dir: str, val_dir_fixed: str, batch_size: int = 32, nu
 
 
 @task
-def train_task(num_classes=100, lr=1e-4, weight_decay=1e-3, epochs=10, patience=3):
+def train_task(num_classes=100, lr=1e-4, weight_decay=1e-3, epochs=5, patience=3):
     # instead of trusting create_lighter_alexnet to be patched,
     # re‐inject a proper classifier on YOUR DEVICE:
     dataloaders_a = torch.load("tiny-imagenet-200/processed/dataloaders_a.pth", weights_only=False)
@@ -46,7 +46,7 @@ def train_task(num_classes=100, lr=1e-4, weight_decay=1e-3, epochs=10, patience=
         model=base_B,
         data_loader=dataloaders_b,
         dropout_rate=0.5,
-        epochs=10,
+        epochs=epochs,
         optimizer_type="ADAM",
         lr=0.0001,
         patience=3,
@@ -58,7 +58,7 @@ def train_task(num_classes=100, lr=1e-4, weight_decay=1e-3, epochs=10, patience=
         model=base_A,
         data_loader=dataloaders_a,
         dropout_rate=0.5,
-        epochs=10,
+        epochs=epochs,
         optimizer_type="ADAM",
         lr=0.0001,
         patience=3,
@@ -96,7 +96,7 @@ def train_task(num_classes=100, lr=1e-4, weight_decay=1e-3, epochs=10, patience=
             model,
             dataloaders_b,
             dropout_rate=0.5,
-            epochs=6,
+            epochs=epochs,
             optimizer_type="ADAM",
             lr=0.0001, 
             patience=3,
@@ -117,7 +117,7 @@ def train_task(num_classes=100, lr=1e-4, weight_decay=1e-3, epochs=10, patience=
 
         # --- Fine-Tuning (BnB+) ---
         logger.warning(f"\n🎯 Fine-tuning B{idx}B model...")
-        model, train_losses_ft, train_acc_ft, val_losses_ft, val_acc_ft = fine_tune_model(model, dataloaders_b, epochs = 5)
+        model, train_losses_ft, train_acc_ft, val_losses_ft, val_acc_ft = fine_tune_model(model, dataloaders_b, epochs = epochs)
 
         # --- Save Fine-Tuning Results ---
         bnb_plus_results[f"B{idx}B+"] = {
@@ -148,7 +148,7 @@ def train_task(num_classes=100, lr=1e-4, weight_decay=1e-3, epochs=10, patience=
             model,
             dataloaders_b,
             dropout_rate=0.5,
-            epochs=6,
+            epochs=epochs,
             optimizer_type="ADAM",
             lr=0.0001, 
             patience=3,
@@ -169,7 +169,7 @@ def train_task(num_classes=100, lr=1e-4, weight_decay=1e-3, epochs=10, patience=
 
         # --- Fine-Tuning (BnB+) ---
         logger.warning(f"\n🎯 Fine-tuning A{idx}B model...")
-        model, train_losses_ft, train_acc_ft, val_losses_ft, val_acc_ft = fine_tune_model(model, dataloaders_b, epochs = 5)
+        model, train_losses_ft, train_acc_ft, val_losses_ft, val_acc_ft = fine_tune_model(model, dataloaders_b, epochs = epochs)
 
         # --- Save Fine-Tuning Results ---
         anb_plus_results[f"A{idx}B+"] = {
