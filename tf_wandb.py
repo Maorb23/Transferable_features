@@ -12,6 +12,14 @@ import pandas as pd
 import os
 import train_tf, inspect
 import logging
+from prefect import task
+import os
+import pandas as pd
+import torch
+import wandb
+from bokeh.plotting import figure, show, output_file, save
+from bokeh.models import ColumnDataSource, HoverTool
+from bokeh.io.export import export_png
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -185,106 +193,114 @@ def train_task(num_classes=100, lr=1e-4, weight_decay=1e-3, epochs=5, patience=3
     
     return base_model_results, bnb_results, bnb_plus_results, anb_results, anb_plus_results
 
-
 @task
 def error_analyze(base_model_results, bnb_results, bnb_plus_results, anb_results, anb_plus_results, save_path_csv="results/all_models_results.csv"):
     os.makedirs("model_results_csv", exist_ok=True)
+    os.makedirs("results", exist_ok=True)
 
-    # Merge all into one dict
-    model_results_dict = {}
+    # --- Fix key names ---
+    def remap_plus_keys(results_dict):
+        return {
+            k.replace("B+", "p").replace("A+", "p"): v
+            for k, v in results_dict.items()
+        }
 
-    # Convert each result set to DataFrames and assign names
-    def convert_to_dfs(result_dict, suffix=""):
-        dfs = {}
-        for model_name, result in result_dict.items():
-            df = pd.DataFrame({
+    bnb_plus_results = remap_plus_keys(bnb_plus_results)
+    anb_plus_results = remap_plus_keys(anb_plus_results)
+
+    # --- Convert to DataFrames ---
+    def convert_to_dfs(result_dict):
+        return {
+            model_name: pd.DataFrame({
                 "train_loss": result["train_losses"],
                 "train_acc": result["train_accuracies"],
                 "val_loss": result["val_losses"],
                 "val_acc": result["val_accuracies"]
-            })
-            dfs[f"{model_name}{suffix}"] = df
-        return dfs
+            }) for model_name, result in result_dict.items()
+        }
 
+    model_results_dict = {}
     model_results_dict.update(convert_to_dfs({"B": base_model_results["base_B"]}))
     model_results_dict.update(convert_to_dfs(bnb_results))
-    model_results_dict.update(convert_to_dfs(bnb_plus_results, suffix="p"))
+    model_results_dict.update(convert_to_dfs(bnb_plus_results))
     model_results_dict.update(convert_to_dfs(anb_results))
-    model_results_dict.update(convert_to_dfs(anb_plus_results, suffix="p"))
+    model_results_dict.update(convert_to_dfs(anb_plus_results))
 
-    # Reset index and build combined DataFrame
-    for model_name, df in model_results_dict.items():
-        model_results_dict[model_name] = df.reset_index(drop=True)
+    # Save combined CSV
+    for k in model_results_dict:
+        model_results_dict[k] = model_results_dict[k].reset_index(drop=True)
     combined_df = pd.concat(model_results_dict.values(), axis=1)
     combined_df.to_csv(save_path_csv, index=False)
 
-
-
-    # --- Scatter Plot for final validation accuracy ---
+    # x-axis positions
     x_positions = {
-        "B": 0, "B1B": 1, "B1Bp": 1, "B2B": 2, "B2Bp": 2,
-        "B3B": 3, "B3Bp": 3, "B4B": 4, "B4Bp": 4, "B5B": 5, "B5Bp": 5,
-        "A1B": 1, "A1Bp": 1, "A2B": 2, "A2Bp": 2,
-        "A3B": 3, "A3Bp": 3, "A4B": 4, "A4Bp": 4, "A5B": 5, "A5Bp": 5
+        "B": 0, "B1B": 1, "B1p": 1, "B2B": 2, "B2p": 2,
+        "B3B": 3, "B3p": 3, "B4B": 4, "B4p": 4, "B5B": 5, "B5p": 5,
+        "A1B": 1, "A1p": 1, "A2B": 2, "A2p": 2,
+        "A3B": 3, "A3p": 3, "A4B": 4, "A4p": 4, "A5B": 5, "A5p": 5
     }
 
-    x, y, colors, markers = [], [], [], []
+    # Group definitions
+    groups = {
+        "BaseB": {"color": "cyan", "models": ["B"], "marker": "circle"},
+        "BnB": {"color": "darkblue", "models": ["B1B", "B2B", "B3B", "B4B", "B5B"], "marker": "square"},
+        "BnB⁺": {"color": "darkblue", "models": ["B1p", "B2p", "B3p", "B4p", "B5p"], "marker": "cross"},
+        "AnB": {"color": "crimson", "models": ["A1B", "A2B", "A3B", "A4B", "A5B"], "marker": "square"},
+        "AnB⁺": {"color": "crimson", "models": ["A1p", "A2p", "A3p", "A4p", "A5p"], "marker": "cross"}
+    }
 
-    for model_name, df in model_results_dict.items():
-        if model_name not in x_positions:
-            continue
-        last_val_acc = df.iloc[-1, 3]  # val_acc assumed at column index 3
-        x.append(x_positions[model_name])
-        y.append(last_val_acc)
+    # Plot setup
+    p = figure(
+        title="Validation Accuracy vs Number of Frozen Layers",
+        x_axis_label="Number of Frozen Layers (n)",
+        y_axis_label="Top-1 Validation Accuracy",
+        width=900,
+        height=600,
+        tools="pan,wheel_zoom,box_zoom,reset"
+    )
 
-        if model_name == "B":
-            colors.append("cyan")
-            markers.append("o")
-        elif model_name.startswith("B"):
-            if model_name.endswith("p"):
-                colors.append("lightblue")
-                markers.append("P")
-            else:
-                colors.append("darkblue")
-                markers.append("s")
-        elif model_name.startswith("A"):
-            if model_name.endswith("p"):
-                colors.append("salmon")
-                markers.append("P")
-            else:
-                colors.append("crimson")
-                markers.append("s")
+    for group_name, cfg in groups.items():
+        xs, ys, labels = [], [], []
+        for model_name in cfg["models"]:
+            if model_name not in model_results_dict:
+                continue
+            x = x_positions[model_name]
+            y = model_results_dict[model_name]["val_acc"].iloc[-1]
+            xs.append(x)
+            ys.append(y)
+            labels.append(model_name)
 
-    plt.figure(figsize=(12, 8))
-    for i in range(len(x)):
-        plt.scatter(x[i], y[i], color=colors[i], marker=markers[i], s=100, edgecolors='black', linewidth=1.5)
+        source = ColumnDataSource(data={"x": xs, "y": ys, "label": labels})
+        glyph = getattr(p, cfg["marker"])  # circle, square, triangle
+        if cfg["marker"] == "cross":
+            glyph(x="x", y="y", size=12, line_color=cfg["color"], source=source, legend_label=group_name)
+        else:
+            glyph(x="x", y="y", size=12, fill_color=cfg["color"], line_color="black", source=source, legend_label=group_name)
 
-    plt.xlabel("Number of Frozen Layers (n)", fontsize=14)
-    plt.ylabel("Top-1 Validation Accuracy", fontsize=14)
-    plt.title("Validation Accuracy vs Number of Frozen Layers", fontsize=16)
-    plt.grid(True, linestyle="--", alpha=0.6)
+        p.add_tools(HoverTool(tooltips=[("Model", "@label"), ("Val Acc", "@y{0.000}")], renderers=[p.renderers[-1]]))
 
-    from matplotlib.lines import Line2D
-    legend_elements = [
-        Line2D([0], [0], marker='o', color='w', label='BaseB', markerfacecolor='cyan', markersize=10, markeredgecolor='black'),
-        Line2D([0], [0], marker='s', color='w', label='BnB', markerfacecolor='darkblue', markersize=10, markeredgecolor='black'),
-        Line2D([0], [0], marker='P', color='w', label='BnB⁺', markerfacecolor='lightblue', markersize=10, markeredgecolor='black'),
-        Line2D([0], [0], marker='s', color='w', label='AnB', markerfacecolor='crimson', markersize=10, markeredgecolor='black'),
-        Line2D([0], [0], marker='P', color='w', label='AnB⁺', markerfacecolor='salmon', markersize=10, markeredgecolor='black'),
-    ]
-    plt.legend(handles=legend_elements, loc='upper right', fontsize=12)
+    p.legend.title = "Model Type"
+    p.legend.location = "top_right"
+    p.legend.label_text_font_size = "10pt"
+    p.grid.grid_line_alpha = 0.4
+    p.toolbar.autohide = True
 
-    plt.xticks(range(6))
-    plt.tight_layout()
-    plt.show()
-    plot_path = "results/final_val_accuracy_plot.png"
-    plt.savefig(plot_path)
-    wandb.log({"Final Accuracy Plot": wandb.Image(plot_path)})
+    # Save HTML
+    html_path = "results/final_val_accuracy_plot.html"
+    output_file(html_path)
+    save(p)
 
-    # Log CSV to W&B
+    # Log interactive to W&B
+    wandb.log({
+        "Final Accuracy Interactive Plot": wandb.Html(open(html_path)),
+    })
+
+    # Log as artifact too
     artifact = wandb.Artifact("model_results", type="results")
     artifact.add_file(save_path_csv)
+    artifact.add_file(html_path)
     wandb.log_artifact(artifact)
+
 
 @flow(name="AlexNet Transfer Learning Flow")
 def main_flow(train_dir: str, val_dir_fixed: str, preprocess: bool = True, train: bool = True, error_analysis: bool = True,
@@ -297,12 +313,18 @@ def main_flow(train_dir: str, val_dir_fixed: str, preprocess: bool = True, train
     if preprocess:
         dataloaders_a, dataloaders_b = preprocess_task(train_dir, val_dir_fixed, batch_size, num_classes_a)
     else:
-        dataloaders_a = torch.load("tiny-imagenet-200/processed/dataloaders_a.pth")
-        dataloaders_b = torch.load("tiny-imagenet-200/processed/dataloaders_b.pth")
+        dataloaders_a = torch.load("tiny-imagenet-200/processed/dataloaders_a.pth", weights_only = False)
+        dataloaders_b = torch.load("tiny-imagenet-200/processed/dataloaders_b.pth", weights_only = False)
 
     if train:
         base_model_results, bnb_results, bnb_plus_results, anb_results, anb_plus_results = train_task(lr, weight_decay, patience, epochs)
     if error_analysis:
+        if not train:
+            base_model_results = torch.load("results/base_model_results.pth", weights_only = False)
+            bnb_results = torch.load("results/bnb_results.pth", weights_only = False)
+            bnb_plus_results = torch.load("results/bnb_plus_results.pth", weights_only = False)
+            anb_results = torch.load("results/anb_results.pth", weights_only = False)
+            anb_plus_results = torch.load("results/anb_plus_results.pth", weights_only = False)
         error_analyze(base_model_results, bnb_results, bnb_plus_results, anb_results, anb_plus_results)
 
     wandb.finish()
