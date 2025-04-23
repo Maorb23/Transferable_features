@@ -222,11 +222,12 @@ def error_analyze(base_model_results, bnb_results, bnb_plus_results, anb_results
 
     # --- Scatter Plot for final validation accuracy ---
     x_positions = {
-        "B": 0, "B1B": 1, "B1Bp": 1, "B2B": 2, "B2Bp": 2,
-        "B3B": 3, "B3Bp": 3, "B4B": 4, "B4Bp": 4, "B5B": 5, "B5Bp": 5,
-        "A1B": 1, "A1Bp": 1, "A2B": 2, "A2Bp": 2,
-        "A3B": 3, "A3Bp": 3, "A4B": 4, "A4Bp": 4, "A5B": 5, "A5Bp": 5
+    "B": 0, "B1B": 1, "B1p": 1, "B2B": 2, "B2p": 2,
+    "B3B": 3, "B3p": 3, "B4B": 4, "B4p": 4, "B5B": 5, "B5p": 5,
+    "A1B": 1, "A1p": 1, "A2B": 2, "A2p": 2,
+    "A3B": 3, "A3p": 3, "A4B": 4, "A4p": 4, "A5B": 5, "A5p": 5
     }
+
 
     x, y, colors, markers = [], [], [], []
 
@@ -303,6 +304,12 @@ def main_flow(train_dir: str, val_dir_fixed: str, preprocess: bool = True, train
     if train:
         base_model_results, bnb_results, bnb_plus_results, anb_results, anb_plus_results = train_task(lr, weight_decay, patience, epochs)
     if error_analysis:
+        if not train:
+            base_model_results = torch.load("results/base_model_results.pth")
+            bnb_results = torch.load("results/bnb_results.pth")
+            bnb_plus_results = torch.load("results/bnb_plus_results.pth")
+            anb_results = torch.load("results/anb_results.pth")
+            anb_plus_results = torch.load("results/anb_plus_results.pth")
         error_analyze(base_model_results, bnb_results, bnb_plus_results, anb_results, anb_plus_results)
 
     wandb.finish()
